@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Screen Observer AI</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f7f9fc;
+            color: #333;
+        }
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .preview-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        #startButton {
+            background-color: #2ecc71;
+        }
+        #startButton:hover {
+            background-color: #27ae60;
+        }
+        #stopButton {
+            background-color: #e74c3c;
+        }
+        #stopButton:hover {
+            background-color: #c0392b;
+        }
+        .preview {
+            display: flex;
+            flex-direction: row;
+            gap: 20px;
+            align-items: flex-start;
+        }
+        video, canvas {
+            width: 320px;
+            height: 180px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+            background-color: #000;
+        }
+        .status {
+            background-color: white;
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .analysis {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            margin-top: 20px;
+        }
+        .analysis h3 {
+            margin-top: 0;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            color: #2c3e50;
+        }
+        .log {
+            max-height: 500px;
+            overflow-y: auto;
+            padding: 15px;
+            background-color: #f1f2f6;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        .log-entry {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #ddd;
+        }
+        .timestamp {
+            font-weight: bold;
+            color: #7f8c8d;
+            margin-bottom: 5px;
+        }
+        .description, .interpretation {
+            margin-top: 10px;
+        }
+        .interpretation {
+            font-style: italic;
+            color: #34495e;
+        }
+        .ai-recreation {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px dashed #ddd;
+        }
+        .ai-recreation h4 {
+            margin-top: 0;
+            color: #8e44ad;
+            margin-bottom: 10px;
+        }
+        .ai-recreation img {
+            max-width: 100%;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .image-loading {
+            font-style: italic;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <h1>Screen Observer AI</h1>
+    
+    <div class="container">
+        <div class="buttons">
+            <button id="startButton">Start Recording</button>
+            <button id="stopButton" disabled>Stop Recording</button>
+        </div>
+
+        <div class="preview-container">
+            <div class="preview">
+                <video id="videoPreview" autoplay muted></video>
+                <canvas id="captureCanvas" width="1280" height="720"></canvas>
+            </div>
+            <div class="status" id="statusBox">
+                Select a window or screen to start recording.
+            </div>
+        </div>
+
+        <div class="analysis">
+            <h3>AI Analysis</h3>
+            <div class="log" id="analysisLog"></div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let mediaStream = null;
+        let captureInterval = null;
+        const CAPTURE_INTERVAL_MS = 60000; // 1 minute
+        const video = document.getElementById('videoPreview');
+        const canvas = document.getElementById('captureCanvas');
+        const ctx = canvas.getContext('2d');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const statusBox = document.getElementById('statusBox');
+        const analysisLog = document.getElementById('analysisLog');
+        
+        // Event listeners
+        startButton.addEventListener('click', startRecording);
+        stopButton.addEventListener('click', stopRecording);
+
+        // Function to start screen recording
+        async function startRecording() {
+            try {
+                // Get screen capture stream
+                mediaStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: {
+                        cursor: "always"
+                    },
+                    audio: false
+                });
+                
+                // Connect stream to video element
+                video.srcObject = mediaStream;
+                
+                // Update UI
+                startButton.disabled = true;
+                stopButton.disabled = false;
+                statusBox.textContent = "Recording... Capturing a frame every minute.";
+                
+                // Setup capture interval
+                // First capture immediately, then every minute
+                captureAndAnalyzeFrame();
+                captureInterval = setInterval(captureAndAnalyzeFrame, CAPTURE_INTERVAL_MS);
+                
+                // Handle stream ending (user stops sharing)
+                mediaStream.getVideoTracks()[0].onended = () => {
+                    stopRecording();
+                };
+            } catch (error) {
+                console.error("Error starting recording:", error);
+                statusBox.textContent = "Error starting recording: " + error.message;
+            }
+        }
+
+        // Function to stop recording
+        function stopRecording() {
+            // Clear the capture interval
+            if (captureInterval) {
+                clearInterval(captureInterval);
+                captureInterval = null;
+            }
+            
+            // Stop all tracks in the media stream
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+                video.srcObject = null;
+            }
+            
+            // Update UI
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            statusBox.textContent = "Recording stopped. Select a window to start again.";
+        }
+
+        // Function to capture a frame and send to LLM for analysis
+        async function captureAndAnalyzeFrame() {
+            if (!mediaStream || !mediaStream.active) return;
+            
+            try {
+                // Capture frame from video
+                const videoTrack = mediaStream.getVideoTracks()[0];
+                const trackSettings = videoTrack.getSettings();
+                
+                // Adjust canvas size to match video
+                canvas.width = trackSettings.width || 1280;
+                canvas.height = trackSettings.height || 720;
+                
+                // Draw the current frame to canvas
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Get image data URL
+                const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                
+                // Update status
+                statusBox.textContent = "Frame captured! Analyzing...";
+                
+                // Send to LLM for analysis
+                await analyzeFrameWithLLM(imageDataUrl);
+                
+                // Update status
+                statusBox.textContent = "Recording... Next capture in 1 minute.";
+            } catch (error) {
+                console.error("Error capturing frame:", error);
+                statusBox.textContent = "Error analyzing frame: " + error.message;
+            }
+        }
+
+        // Function to analyze the frame with LLM
+        async function analyzeFrameWithLLM(imageDataUrl) {
+            try {
+                // Create a log entry element first
+                const now = new Date();
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log-entry';
+                
+                // Format the timestamp
+                const timeString = now.toLocaleTimeString() + ', ' + now.toLocaleDateString();
+                
+                // Add timestamp to the log entry
+                const timestampDiv = document.createElement('div');
+                timestampDiv.className = 'timestamp';
+                timestampDiv.textContent = timeString;
+                logEntry.appendChild(timestampDiv);
+                
+                // Create content div
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'content';
+                logEntry.appendChild(contentDiv);
+                
+                // Create a div for the AI recreation
+                const recreationDiv = document.createElement('div');
+                recreationDiv.className = 'ai-recreation';
+                recreationDiv.innerHTML = '<h4>AI Recreation</h4><div class="image-loading">Generating image recreation...</div>';
+                logEntry.appendChild(recreationDiv);
+                
+                // Add to the log (at the beginning) immediately so user sees something is happening
+                analysisLog.insertBefore(logEntry, analysisLog.firstChild);
+
+                // Get description from LLM
+                const completion = await websim.chat.completions.create({
+                    messages: [
+                        {
+                            role: "system",
+                            content: "You are an AI assistant that analyzes screenshots. Provide two paragraphs: 1) Describe what you see in the image in detail, and 2) Give your interpretation of what the user might be doing based on what's visible on the screen."
+                        },
+                        {
+                            role: "user",
+                            content: [
+                                {
+                                    type: "text",
+                                    text: "Analyze this screenshot. What is happening in this scene? Provide a description and your interpretation."
+                                },
+                                {
+                                    type: "image_url",
+                                    image_url: { url: imageDataUrl }
+                                }
+                            ]
+                        }
+                    ]
+                });
+
+                // Extract response
+                const response = completion.content;
+                
+                // Update the content div with the analysis
+                contentDiv.innerHTML = response.replace(/\n/g, '<br>');
+                
+                // Now generate an image based on the analysis
+                try {
+                    // Create a concise prompt for image generation based on the analysis
+                    const imageCompletionPrompt = await websim.chat.completions.create({
+                        messages: [
+                            {
+                                role: "system",
+                                content: "You are an AI assistant that creates concise image generation prompts. Given a description of a screenshot, create a clear, detailed prompt that captures the essential visual elements for recreating the scene."
+                            },
+                            {
+                                role: "user",
+                                content: [
+                                    {
+                                        type: "text",
+                                        text: `Create a concise but detailed image generation prompt based on this screenshot description:\n\n${response}`
+                                    }
+                                ]
+                            }
+                        ]
+                    });
+                    
+                    // Get the image prompt
+                    const imagePrompt = imageCompletionPrompt.content;
+                    
+                    // Generate the image
+                    const imageResult = await websim.imageGen({
+                        prompt: imagePrompt,
+                        aspect_ratio: "16:9",
+                    });
+                    
+                    // Update the recreation div with the generated image
+                    recreationDiv.innerHTML = `
+                        <h4>AI Recreation</h4>
+                        <p><em>Prompt: ${imagePrompt}</em></p>
+                        <img src="${imageResult.url}" alt="AI recreation of screenshot">
+                    `;
+                } catch (imageError) {
+                    console.error("Error generating image:", imageError);
+                    recreationDiv.innerHTML = '<h4>AI Recreation</h4><div class="image-loading">Failed to generate image: ' + imageError.message + '</div>';
+                }
+                
+            } catch (error) {
+                console.error("Error analyzing with LLM:", error);
+                statusBox.textContent = "Error getting AI analysis: " + error.message;
+            }
+        }
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
+</body>
+</html>
