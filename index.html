@@ -33,6 +33,7 @@
             gap: 10px;
             justify-content: center;
             margin-bottom: 20px;
+            flex-wrap: wrap;
         }
         button {
             background-color: #3498db;
@@ -62,6 +63,12 @@
         }
         #stopButton:hover {
             background-color: #c0392b;
+        }
+        #captureNowButton {
+            background-color: #f39c12;
+        }
+        #captureNowButton:hover {
+            background-color: #d35400;
         }
         .preview {
             display: flex;
@@ -139,6 +146,32 @@
             font-style: italic;
             color: #7f8c8d;
         }
+        .interval-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            justify-content: center;
+            margin-top: 10px;
+        }
+        .interval-controls input {
+            width: 80px;
+            padding: 5px;
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .controls-group {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 10px;
+            background-color: #f8f9fa;
+        }
+        .controls-title {
+            margin-top: 0;
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
@@ -148,6 +181,16 @@
         <div class="buttons">
             <button id="startButton">Start Recording</button>
             <button id="stopButton" disabled>Stop Recording</button>
+            <button id="captureNowButton" disabled>Capture Now</button>
+        </div>
+
+        <div class="controls-group">
+            <h4 class="controls-title">Capture Settings</h4>
+            <div class="interval-controls">
+                <label for="captureInterval">Capture interval (seconds):</label>
+                <input type="number" id="captureInterval" min="5" max="3600" value="60">
+                <button id="updateIntervalButton">Update</button>
+            </div>
         </div>
 
         <div class="preview-container">
@@ -170,18 +213,43 @@
         // Global variables
         let mediaStream = null;
         let captureInterval = null;
-        const CAPTURE_INTERVAL_MS = 60000; // 1 minute
+        let CAPTURE_INTERVAL_MS = 60000; // Default: 1 minute
         const video = document.getElementById('videoPreview');
         const canvas = document.getElementById('captureCanvas');
         const ctx = canvas.getContext('2d');
         const startButton = document.getElementById('startButton');
         const stopButton = document.getElementById('stopButton');
+        const captureNowButton = document.getElementById('captureNowButton');
         const statusBox = document.getElementById('statusBox');
         const analysisLog = document.getElementById('analysisLog');
+        const captureIntervalInput = document.getElementById('captureInterval');
+        const updateIntervalButton = document.getElementById('updateIntervalButton');
         
         // Event listeners
         startButton.addEventListener('click', startRecording);
         stopButton.addEventListener('click', stopRecording);
+        captureNowButton.addEventListener('click', () => captureAndAnalyzeFrame(true));
+        updateIntervalButton.addEventListener('click', updateCaptureInterval);
+
+        // Function to update capture interval
+        function updateCaptureInterval() {
+            const seconds = parseInt(captureIntervalInput.value);
+            if (isNaN(seconds) || seconds < 5) {
+                alert('Please enter a valid number of seconds (minimum 5)');
+                return;
+            }
+            
+            CAPTURE_INTERVAL_MS = seconds * 1000;
+            
+            // Reset the interval if recording is active
+            if (captureInterval) {
+                clearInterval(captureInterval);
+                captureInterval = setInterval(captureAndAnalyzeFrame, CAPTURE_INTERVAL_MS);
+                statusBox.textContent = `Recording... Capture interval updated to ${seconds} seconds.`;
+            } else {
+                statusBox.textContent = `Capture interval set to ${seconds} seconds. Start recording to begin.`;
+            }
+        }
 
         // Function to start screen recording
         async function startRecording() {
@@ -200,10 +268,14 @@
                 // Update UI
                 startButton.disabled = true;
                 stopButton.disabled = false;
-                statusBox.textContent = "Recording... Capturing a frame every minute.";
+                captureNowButton.disabled = false;
+                
+                const seconds = parseInt(captureIntervalInput.value);
+                CAPTURE_INTERVAL_MS = seconds * 1000;
+                statusBox.textContent = `Recording... Capturing a frame every ${seconds} seconds.`;
                 
                 // Setup capture interval
-                // First capture immediately, then every minute
+                // First capture immediately, then every interval
                 captureAndAnalyzeFrame();
                 captureInterval = setInterval(captureAndAnalyzeFrame, CAPTURE_INTERVAL_MS);
                 
@@ -235,11 +307,12 @@
             // Update UI
             startButton.disabled = false;
             stopButton.disabled = true;
+            captureNowButton.disabled = true;
             statusBox.textContent = "Recording stopped. Select a window to start again.";
         }
 
         // Function to capture a frame and send to LLM for analysis
-        async function captureAndAnalyzeFrame() {
+        async function captureAndAnalyzeFrame(isManualCapture = false) {
             if (!mediaStream || !mediaStream.active) return;
             
             try {
@@ -258,13 +331,16 @@
                 const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8);
                 
                 // Update status
-                statusBox.textContent = "Frame captured! Analyzing...";
+                statusBox.textContent = isManualCapture ? 
+                    "Manual capture triggered! Analyzing..." : 
+                    "Scheduled frame captured! Analyzing...";
                 
                 // Send to LLM for analysis
                 await analyzeFrameWithLLM(imageDataUrl);
                 
                 // Update status
-                statusBox.textContent = "Recording... Next capture in 1 minute.";
+                const seconds = CAPTURE_INTERVAL_MS / 1000;
+                statusBox.textContent = `Recording... Next scheduled capture in ${seconds} seconds.`;
             } catch (error) {
                 console.error("Error capturing frame:", error);
                 statusBox.textContent = "Error analyzing frame: " + error.message;
